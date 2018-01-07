@@ -1,10 +1,3 @@
-rom
-libs.db_mongo
-import Mongo
-# from libs.db_rethink import Rethink
-import logging
-from api_config import log_config
-# from libs.db_rethink import Rethink
 import logging
 
 from api_config import log_config
