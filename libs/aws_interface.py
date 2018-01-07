@@ -662,7 +662,7 @@ class AWSInterface(object):
                 logger.info("Well done! Not found low utilization instances!!! =) ")
 
             # Return the final result.
-            df_to_picke(df, pick_file)
+            # df_to_picke(df, pick_file)
             return report
         except Exception as e:
             logger.error("Error to create final report... {}".format(e))

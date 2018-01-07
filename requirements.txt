@@ -1,0 +1,9 @@
+boto3==1.5.8
+pytz==2017.3
+Flask==0.11.1
+numpy==1.13.3
+ntplib==0.3.3
+pymongo==3.5.1
+paramiko==2.4.0
+pandas==0.21.0
+Mongo==0.2.0
