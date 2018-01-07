@@ -1,7 +1,7 @@
 import logging.config
 import os
 
-from api_config import log_config
+from api_config import main_config, log_config
 from libs.aws_interface import AWSInterface
 from libs.db_wrapper import DataStore
 
@@ -37,17 +37,20 @@ class CloudWrapper:
             instances_list = aws.get_simple_instances_list(state, tag_key, tag_value)
         return instances_list
 
-    def make_low_utilization(self, tag_key=None, tag_value=None, max_cpu=None, max_mem_available=None, network=None,
+    def make_low_utilization(self, tag_key=None, tag_value=None, max_cpu=None, max_mem_available=None, network_io=None,
                              test_mode=False):
         low_utilizations = None
         ds = DataStore()
         db = "cloud_mon"
         table = None
         if 'aws' in self.cloud_provider:
-            table = "aws_low_utilization"
+            table = main_config['mongo_collection']
+            if not 'aws' in table:
+                table = "aws_{}".format(table)
             aws = AWSInterface(test_mode)
             low_utilizations = aws.get_low_utilization_instances(tag_key=tag_key, tag_value=tag_value, max_cpu=max_cpu,
-                                                                 max_mem_available=max_mem_available, network=network)
+                                                                 max_mem_available_pct=max_mem_available,
+                                                                 network_io=network_io)
 
             ds.save(db, table, low_utilizations)
         if 'googlecloud' in self.cloud_provider:
@@ -66,9 +69,11 @@ class CloudWrapper:
                                                                  max_cpu, max_mem_available, network)
             return low_utilizations
 
-    def get_low_utilization_from_db(self, instance_id=None, instance_region=None, tag_key=None, tag_value=None):
+    def get_low_utilization_from_db(self, instance_id=None, instance_region=None, tag_key=None, tag_value=None,
+                                    summary_report=None):
         ds = DataStore()
         db = "cloud_mon"
         table = "aws_low_utilization"
-        low_utilizations = ds.get_low_utilization_db(db, table, instance_id, instance_region, tag_key, tag_value)
+        low_utilizations = ds.get_low_utilization_db(db, table, instance_id, instance_region, tag_key, tag_value,
+                                                     summary_report)
         return low_utilizations

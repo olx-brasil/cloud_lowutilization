@@ -9,7 +9,8 @@ import pandas as pd
 
 from api_config import log_config, main_config
 from libs.tools import datetime_iso8601, convert_dict_dataframe, ssh_os_linux_available_memory, \
-    check_is_file_exist, df_to_picke, picke_to_dataframe, nan2floatzero, check_string_in_list, config_fallback
+    check_is_file_exist, df_to_picke, picke_to_dataframe, nan2floatzero, check_string_in_list, config_fallback, \
+    count_tags, convert_anything_to_bool
 
 # import datetime
 
@@ -154,9 +155,9 @@ class AWSInterface(object):
     def __get_instance_ssh_memory_info(self, instance_ip, instance_ssh_key, instance_id, instance_region):
         # Try to get in the instance, the memory available.
         dict_mem_info = dict()
-        dict_mem_info['memtotal'] = 0
-        dict_mem_info['memavailable'] = 0
-        dict_mem_info['percent_free'] = 0
+        dict_mem_info['memtotal'] = -1
+        dict_mem_info['memavailable'] = -1
+        dict_mem_info['percent_free'] = -1
         dict_mem_info['kernel'] = 'unknown'
         dict_mem_info['distro'] = 'unknown'
         try:
@@ -199,7 +200,7 @@ class AWSInterface(object):
         details = self.get_instance_details(instance_id, instance_region)
 
         # Get memory info thougth SSH
-        instance_ip = details['InstanceIP']
+        instance_ip = details['instanceIP']
         instance_ssh_key = details['SSHKey']
         dict_mem_info = self.__get_instance_ssh_memory_info(instance_ip, instance_ssh_key, instance_id,
                                                             instance_region, )
@@ -214,6 +215,7 @@ class AWSInterface(object):
                      "distro": dict_mem_info['distro'],
                      "DiskRead": diskr,
                      "DiskWrite": diskw,
+                     "NetworkIOBytes_aggr": netin + netou,
                      "NetworkInBytes_aggr": netin,
                      "NetworkOutBytes_aggr": netou,
                      "NetworkInBytesSec": int(netin / period),
@@ -375,14 +377,17 @@ class AWSInterface(object):
 
         # If inasg = True then not exist KeyName.
         try:
-            sshkey = rs['Reservations'][0]['Instances'][0]['KeyName']
+            sshkey = str(rs['Reservations'][0]['Instances'][0]['KeyName'])
         except:
             pass
 
-        imageid = rs['Reservations'][0]['Instances'][0]['ImageId']
-        instance_type = rs['Reservations'][0]['Instances'][0]['InstanceType']
-        ebs_optimized = rs['Reservations'][0]['Instances'][0]['EbsOptimized']
-        state = rs['Reservations'][0]['Instances'][0]['State']['Name']
+        imageid = str(rs['Reservations'][0]['Instances'][0]['ImageId'])
+        instance_type = str(rs['Reservations'][0]['Instances'][0]['InstanceType'])
+        instance_family = str(instance_type.split('.')[0])
+        instance_family_generation = instance_family[1:]
+
+        ebs_optimized = convert_anything_to_bool(rs['Reservations'][0]['Instances'][0]['EbsOptimized'])
+        state = str(rs['Reservations'][0]['Instances'][0]['State']['Name'])
         state_code = int(rs['Reservations'][0]['Instances'][0]['State']['Code'])
 
         # state  codes
@@ -393,17 +398,19 @@ class AWSInterface(object):
             vpcid = rs['Reservations'][0]['Instances'][0]['VpcId']
             subnetid = rs['Reservations'][0]['Instances'][0]['SubnetId']
 
-        availability_zone = rs['Reservations'][0]['Instances'][0]['Placement']['AvailabilityZone']
-        ownerid = rs['Reservations'][0]['OwnerId']
+        availability_zone = str(rs['Reservations'][0]['Instances'][0]['Placement']['AvailabilityZone'])
+        ownerid = str(rs['Reservations'][0]['OwnerId'])
 
         try:
-            tags = rs['Reservations'][0]['Instances'][0]['Tags']
+            tags = list(rs['Reservations'][0]['Instances'][0]['Tags'])
             details = {}
+            tag_dict = {}
             tags_black_list = main_config['aws_tag_exclude']
             # tags_black_list = ['elasticbeanstalk:', 'aws:', 'k8s.']
             for tag in tags:
                 if not check_string_in_list(tag['Key'], tags_black_list):
-                    details.update({'{}'.format(tag['Key']): tag['Value']})
+                    tag_dict.update({'{}'.format(tag['Key']): tag['Value']})
+            # details.update({'tags':tag_list})
         except Exception:
             logger.exception("Error on capture tags", exc_info=True)
             pass
@@ -419,17 +426,20 @@ class AWSInterface(object):
             "SSHKey": sshkey,
             "InASG": inasg,
             "ASGName": asg_name,
-            "Instance_type": instance_type,
-            "Instance_ebsoptimized": ebs_optimized,
-            'InstanceIP': private_ip_address,
-            "InstanceHostName": private_dns_name,
-            "Instance_vpc_id": vpcid,
+            "instance_type": instance_type,
+            "instance_family": instance_family,
+            "instance_family_generation": instance_family_generation,
+            "instance_ebsoptimized": ebs_optimized,
+            'instanceIP': private_ip_address,
+            "instanceHostName": private_dns_name,
+            "instance_vpc_id": vpcid,
             "instance_subnet_id": subnetid,
             "instance_availabilityzone": availability_zone,
             "instance_ami": imageid,
             "instance_account_id": ownerid,
             "instance_reservation_id": reservationid,
             "instance_launch_time": launchtime,
+            "instance_tags": tag_dict
         })
         try:
             cost = self.get_ec2_price(instance_type, instance_region)
@@ -478,8 +488,26 @@ class AWSInterface(object):
             logger.exception("Error on get_simple_instances_list", exc_info=True)
 
     # IF CPU <=50% and NetworkIO <= 500Mb &FreeMemory >= 50%
+    def __filter_low_utilization_instances(self, df_all_instances, max_cpu=None, max_mem_available_pct=None,
+                                           network_io=None):
+        """
+        Two phases of filter:
+        Phase 1: Get all instances with low use of cpu and low use of NetIO
+        Phase 2: Check in list of phase 1 the low use memory to a final list.
+        ALL -> criteria cpu+network  -> memory = low inst. list
+        """
+        # finding the low utilization instances using the criteria...
+        # AWS uses as formula to criteria in networkIO in  this way:
+        # network_in + network_out <=  x
+        network_io_bytes = int(network_io) * (1024 ** 2)
+        df_low = df_all_instances[
+            (df_all_instances['CPU'] <= max_cpu) & (df_all_instances['NetworkIOBytes_aggr'] <= network_io_bytes)]
+        df_low = df_low[
+            (df_low['AvailiableMemoryPerc'] < 0) | (df_low['AvailiableMemoryPerc'] >= max_mem_available_pct)]
+        return df_low
+
     def get_low_utilization_instances(self, instance_id=None, instance_region=None, tag_key=None, tag_value=None,
-                                      max_cpu=None, max_mem_available=None, network=None):
+                                      max_cpu=None, max_mem_available_pct=None, network_io=None):
 
         report = []
         """
@@ -519,10 +547,12 @@ class AWSInterface(object):
                     logger.debug(
                         "processed {}% - processing instance {}:{}....".format(processed_perc, instance['id'],
                                                                                instance['region']))
-
+                    aggregation_value = config_fallback(main_config['criteria_aggregation_value'], 14)
+                    aggregation_unit = config_fallback(main_config['criteria_aggegation_unit'], 'days')
                     instance_report_dict = self.__get_instance_report_agg(instance_id=instance['id'],
                                                                           instance_region=instance['region'],
-                                                                          aggregation_type='days', aggregation=14,
+                                                                          aggregation_type=aggregation_unit,
+                                                                          aggregation=aggregation_value,
                                                                           period=3600)
                     df = pd.concat([df, convert_dict_dataframe(instance_report_dict)])
                     if logging.getLevelName("INFO"):
@@ -543,35 +573,37 @@ class AWSInterface(object):
         if self.test_mode and pick_load is False:
             df_to_picke(df, pick_file)
 
-        untagged_owner = 0
-        untagged_team = 0
-        untagged_work = 0
+        tags_count = count_tags(df["instance_tags"])
+        untagged_owner = tags_count['untagged_owner']
+        untagged_team = tags_count['untagged_team']
+        untagged_work = tags_count['untagged_work']
+        untagged_owner, tags_count['untagged_owner']
 
+        # Finding low utilization...
+        # --------------------------
+        instances_low_utilizations = 0
         try:
-            untagged_owner = sum(pd.isnull(df['owner']))
-        except Exception:
-            logger.info("Tag owner. Not exist!")
-            pass
-        try:
-            untagged_team = sum(pd.isnull(df['team']))
-        except Exception:
-            logger.info("Tag team. Not exist!")
-            pass
-        try:
-            untagged_work = sum(pd.isnull(df['work']))
-        except Exception:
-            logger.info("Tag work. Not exist!")
+
+            "Logic of critecis is in the __filter_low_utilization_instances()"
+            df_low = self.__filter_low_utilization_instances(df, max_cpu=max_cpu, network_io=network_io,
+                                                             max_mem_available_pct=max_mem_available_pct)
+            instances_low_utilizations = df_low.shape[0]  # fast way to get number of rows
+        except Exception as e:
+            logger.exception("Error on summarization low utilization instances{}".format(e), exc_info=True)
             pass
 
+        # Summarization  of instances...
+        # ------------------------------
         total_instances = 0
         total_instances_reserved = 0
         total_instances_on_demand = 0
         total_cost_reserved = 0
         total_cost_on_demand = 0
         total_cost_simulated_ri = 0
+        total_cost_low_utilization_od = 0
+        total_cost_low_utilization_ri = 0
 
         try:
-            # Summarization  of instances...
             total_instances = df.shape[0]
             total_instances_reserved = sum(df["instance_reservation_id"].notnull())
             total_instances_on_demand = sum(df["instance_reservation_id"].isnull())
@@ -582,6 +614,12 @@ class AWSInterface(object):
             total_cost_on_demand = nan2floatzero(
                 df[df["instance_reservation_id"].isnull()]['cost_month_ondemand'].sum())
 
+            total_cost_low_utilization_ri = nan2floatzero(
+                df_low[df_low["instance_reservation_id"].notnull()]['cost_month_reserved'].sum())
+            total_cost_low_utilization_od = nan2floatzero(
+                df_low[df_low["instance_reservation_id"].isnull()]['cost_month_ondemand'].sum())
+
+
             # Save Money Info
             total_cost_simulated_ri = nan2floatzero(
                 df[df["instance_reservation_id"].isnull()]['cost_month_reserved'].sum())
@@ -590,34 +628,21 @@ class AWSInterface(object):
             logger.error("Error on summarization cost information... - {}".format(e))
             pass
 
-        network_bytes = 0
-        instances_low_utilizations = 0
+        # Creating the JSON Report...
+        # ---------------------------
         try:
-            # finding the low utilization instances using the criteria...
-            network_bytes = int(network) * (1024 ** 2)
-            df_low = df[(df['CPU'] <= max_cpu) &
-                        (df['AvailiableMemoryPerc'] >= max_mem_available) &
-                        (df['NetworkInBytes_aggr'] <= network_bytes) &  # Network_bytes =  accumulated in the period...
-                        (df['NetworkOutBytes_aggr'] <= network_bytes)]
-            instances_low_utilizations = df_low.shape[0]  # fast way to get number of rows
-        except Exception as e:
-            logger.error("Error on summarization low utilization instances{}".format(e))
-            pass
-
-        try:
-            # Creating the JSON Report...
             now = datetime_iso8601(datetime.today())
             report = {
                 "report_date": now,
                 "aggregation_details": {
                     "total_examined": total_instances,  # "amount_instances_examined": 421,
                     "total_low_utilization": instances_low_utilizations,
-                    "criteria": "cpu <= {}% & mem free >= {}% & netio_aggr <= {}Mb".format(max_cpu, max_mem_available,
-                                                                                           network),
+                    "criteria": "cpu <= {}% & mem free >= {}% & netio_aggr <= {}Mb".format(max_cpu,
+                                                                                           max_mem_available_pct,
+                                                                                           network_io),
                     "total_untagged_owner": untagged_owner,
                     "total_untagged_team": untagged_team,
-                    "total_untagged_product": untagged_product,
-                    "total_untagged_env": untagged_env,
+                    "total_untagged_work": untagged_work,
                 },
                 "money_details": {
                     "total_instances_on_demand": total_instances_on_demand,
@@ -637,6 +662,7 @@ class AWSInterface(object):
                 logger.info("Well done! Not found low utilization instances!!! =) ")
 
             # Return the final result.
+            df_to_picke(df, pick_file)
             return report
         except Exception as e:
             logger.error("Error to create final report... {}".format(e))

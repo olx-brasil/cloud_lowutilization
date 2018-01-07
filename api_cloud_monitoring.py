@@ -23,18 +23,19 @@ global TEST_MODE
 TEST_MODE = convert_anything_to_bool(os.getenv('TEST_MODE'))
 
 
-def make_low_utilization(tag_key=None, tag_value=None, max_cpu=None, max_availiableemory=None, network=None):
+def make_low_utilization(tag_key=None, tag_value=None, max_cpu=None, max_availiableemory=None, network_io=None):
     tag_key = None
     tag_value = None
 
-    if max_cpu is None or max_availiableemory is None or network is None:
-        max_cpu = config_fallback(main_config['system_percent_max_cpu'], fallback=50)
-        max_mem_available = config_fallback(main_config['system_percent_max_availiablememory'], fallback=50)
-        network = config_fallback(main_config['system_network_io_mega'], fallback=150)
+    if max_cpu is None or max_availiableemory is None or network_io is None:
+        max_cpu = config_fallback(main_config['criteria_percent_max_cpu'], fallback=50)
+        max_mem_available_pct = config_fallback(main_config['criteria_max_mem_available_pct'], fallback=50)
+        network_io = config_fallback(main_config['criteria_network_io_mega'], fallback=150)
 
     cloud = CloudWrapper('aws')
     status = cloud.make_low_utilization(tag_key=tag_key, tag_value=tag_value, max_cpu=max_cpu,
-                                        max_mem_available=max_mem_available, network=network, test_mode=TEST_MODE)
+                                        max_mem_available=max_mem_available_pct, network_io=network_io,
+                                        test_mode=TEST_MODE)
     if status:
         logger.info("make_low_utilization has been finished!")
     else:
@@ -61,8 +62,9 @@ def run_make_low_utilization():
 def run_low_utilization():
     tag_key = request.args.get('tag_key')
     tag_value = request.args.get('tag_value')
+    summary_report = convert_anything_to_bool(request.args.get('summary'))
     cloud = CloudWrapper('aws')
-    obj = cloud.get_low_utilization_from_db(tag_key=tag_key, tag_value=tag_value)
+    obj = cloud.get_low_utilization_from_db(tag_key=tag_key, tag_value=tag_value, summary_report=summary_report)
     if obj is None:
         abort(404)
     obj_formatted = dumps(obj)

@@ -1,6 +1,7 @@
 import datetime
 import logging
 import logging.config
+import math
 import re
 import socket
 import time
@@ -183,14 +184,15 @@ def findNumber(text):
 def sshCommand(command, hostname, username, tcpport=22, password=None, pkey=None):
     ssh_timeout = 1
     try:
-        ssh_timeout = general_config.getint('ssh_timewout_seconds', fallback=ssh_timeout)
-    except:
+        ssh_timeout = config_fallback(main_config['system_ssh_timeout'], fallback=ssh_timeout)
+    except Exception:
         pass
 
     kword = {}
     kword['hostname'] = hostname
     kword['port'] = tcpport
     kword['username'] = username
+    kword['timeout'] = ssh_timeout
     if password is not None:
         kword['password'] = password
     if pkey is not None:
@@ -320,9 +322,9 @@ def get_timestp():
 
 def ssh_os_linux_available_memory(host_ip, host_key=None, username=None, password=None):
     kword = {}
-    dict_mem_full_info = {'percent_free': 0,
-                          'memtotal': 0,
-                          'memavailable': 0,
+    dict_mem_full_info = {'percent_free': -1,
+                          'memtotal': -1,
+                          'memavailable': -1,
                           'kernel': 'unknown',
                           'distro': 'unknown'
                           }
@@ -444,3 +446,60 @@ def config_fallback(value, fallback=None):
         return value
     except Exception:
         logger.exception("Error to process value or fallback", exc_info=True)
+        return fallback
+
+
+"""
+Null = 0
+Valid = 1
+"""
+
+
+def is_valid(value):
+    valid = False
+    try:
+        if isinstance(value, int):
+            if value is not None:
+                return True
+        if isinstance(value, str):
+            if value is not None or len(value) > 0:
+                return True
+        if not math.isnan(float(value)):
+            return True
+    except Exception:
+        return False
+
+
+def count_tags(serie):
+    dict_count = {'untagged_owner': 0,
+                  'untagged_owner': 0,
+                  'untagged_team': 0,
+                  'untagged_work': 0
+                  }
+
+    untagged_owner = 0
+    untagged_team = 0
+    untagged_work = 0
+    try:
+        for row in serie:
+            try:
+                if not is_valid(row['owner']):
+                    untagged_owner += 1
+            except Exception:
+                pass
+            try:
+                if not is_valid(row['team']):
+                    untagged_team += 1
+            except Exception:
+                pass
+            try:
+                if not is_valid(row['work']):
+                    untagged_work += 1
+            except Exception:
+                pass
+        dict_count.update(
+            {'untagged_owner': untagged_owner, 'untagged_team': untagged_team, 'untagged_work': untagged_work})
+    except Exception:
+        pass
+    finally:
+        return dict_count

@@ -46,23 +46,44 @@ class Mongo(object):
                 exit(1)
 
     def get_low_utilizaion_db(self, mongo_db, mongo_collection, instance_id=None, instance_region=None, tag_key=None,
-                              tag_value=None):
+                              tag_value=None, summary_report=None):
         try:
             db = self.conn[mongo_db][mongo_collection]
             documents = None
-            if tag_key is not None and tag_value is not None:
-                # documents = db.aggregate({"$match": {"instances.{}".format(tag_key): tag_value}}).sort("_id", -1).limit(1)
-                documents = db.find({"instances.{}".format(tag_key): tag_value}, {"instances.$": 1}).sort("_id",
-                                                                                                          -1).limit(1)
-                result = [(item) for item in documents]
+            result = None
+
+            if summary_report:
+                try:
+                    documents = db.find({}, {"aggregation_details": 1, "money_details": 1}).sort("report_date",
+                                                                                                 -1).limit(1)
+                except  Exception:
+                    logger.exception("Error on summity", exc_info=True)
+
+            elif tag_key is not None and tag_value is not None:
+                documents = db.aggregate(
+                    [
+                        {"$sort": {"report_date": -1}},
+                        {
+                            "$project": {
+                                "low_utilization_instances": {
+                                    "$filter": {
+                                        "input": "$low_utilization_instances",
+                                        "as": "instance",
+                                        "cond": {"$eq": ["$$instance.instance_tags.{}".format(tag_key), tag_value]}
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                )
 
             else:
                 documents = db.find().sort("_id", -1).limit(1)
-                result = [(item) for item in documents]
 
+            result = [(item) for item in documents]
             return result
         except Exception as e:
-            logger.error("Error on Mongo get_low_utilizaion_db - {}".format(e))
+            logger.exception("Error on Mongo get_low_utilizaion_db - {}".format(e), exc_info=True)
         finally:
             try:
                 self.conn.close()

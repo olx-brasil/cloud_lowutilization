@@ -3,34 +3,35 @@ main_config = {
     "api_listner_port": "8080",
     "api_flash_debug": True,
 
-    "system_pidfile": "cloud_monitoring.pid",
-    "system_percent_max_cpu": 50,
-    "system_percent_max_availiablememory": 50,
-    "system_network_io_mega": 150,
+    "criteria_percent_max_cpu": 50,
+    "criteria_max_mem_available_pct": 50,
+    "criteria_network_io_mega": 150,  # 1GB
+    "criteria_aggregation_value": 14,
+    "criteria_aggegation_unit": 'days',
+
     "system_timezone": "UTC",
-    "system_ssh_timeout": 2,
+    "system_ssh_timeout": 4,
     "system_ntp_server": "0.north-america.pool.ntp.org, 1.north-america.pool.ntp.org, 2.north-america.pool.ntp.org, 3.north-america.pool.ntp.org",
     "system_loglevel": "DEBUG",
     "system_logfile": None,
     "system_test_mode_ids": [
         {'id': 'i-0aeb5dcc19892e8a6', 'region': 'us-east-1'},
-        {'id': 'i-0349b84be2af801c4', 'region': 'sa-east-1'},
-        {'id': 'i-07e942ad6c0796443', 'region': 'sa-east-1'},
-        {'id': 'i-02c0532f015927db4', 'region': 'sa-east-1'},
-        {'id': 'i-075212272e7a51ab9', 'region': 'sa-east-1'},
-        {'id': 'i-028103819d9998954', 'region': 'sa-east-1'},
-        {'id': 'i-0e44316a6217e7d58', 'region': 'sa-east-1'},
+        {'id': 'i-0f6cf1cb60ec1e35a', 'region': 'sa-east-1'},  # Não temos a chave mas é low utilization no report
+        {'id': 'i-017546d384aea17d1', 'region': 'sa-east-1'},  # NGA - team infra e temos chave
+        {'id': 'i-012b33752543a8680', 'region': 'sa-east-1'},  # Malta, temos chave
         {'id': 'i-07e5c2f095f72af6e', 'region': 'sa-east-1'},
-        {'id': 'i-0349b84be2af801c4', 'region': 'sa-east-1'}
+        {'id': 'i-0349b84be2af801c4', 'region': 'sa-east-1'},
+        {'id': 'i-0d13136d94c625a5e', 'region': 'sa-east-1'}
     ],
     "system_test_picke_file": "/Volumes/DataDisk/csmaniotto/projects/cloud_monitoring/df_test.pkl",
 
     # "aws_regions": ['us-east-1','us-west-1','us-west-2','eu-west-1','sa-east-1', 'ap-southeast-1','ap-southeast-2','ap-northeast-1'],
-    "aws_regions": ['sa-east-1'],
+    "aws_regions": ['sa-east-1', 'us-east-1'],
     "aws_ssh_key_folder": "/Volumes/DataDisk/csmaniotto/projects/pemkeys/",
     "aws_tag_exclude": ['elasticbeanstalk:', 'aws:', 'k8s.'],
 
-    "mongo-server": "localhost:32768",
+    # "mongo-server": "localhost:32768",
+    "mongo-server": "abc833672e4d711e7996102ed2455e02-33316868.sa-east-1.elb.amazonaws.com:27017",
     "mongo_db-": "clound_mon",
     "mongo_collection": "low_utilization"
 }
